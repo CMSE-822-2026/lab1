@@ -41,7 +41,49 @@ void mandelbrot_cpu_scalar(uint32_t img_size, uint32_t max_iters, uint32_t *out)
 /// <--- your code here --->
 
 void mandelbrot_cpu_vector(uint32_t img_size, uint32_t max_iters, uint32_t *out) {
-    // TODO: Implement this function.
+        // Generate coordinate offsets
+    __m512 offsets = _mm512_set_ps(15.0f,14.0f,13.0f,12.0f,11.0f,10.0f,9.0f,8.0f,7.0f,6.0f,5.0f,4.0f,3.0f,2.0f,1.0f,0.0f);
+
+    // Generate time iteration vector
+    // __m512i iters = _m512_set1_epi32(0)
+
+    // Other vectors that are commonly used
+    __m512 const_vec_mul = _mm512_set1_ps(2.5f / (float)img_size);
+    __m512 const_vec_sub = _mm512_set1_ps(2.0f);
+
+    for (uint64_t i = 0; i < img_size; ++i) {
+        for (uint64_t j = 0; j < img_size; j+=16) {
+            // Get the plane coordinate X for the image pixel.
+            // float cx = (float(j) / float(img_size)) * 2.5f - 2.0f;
+            __m512 j_vec = _mm512_add_ps(
+                offsets, 
+                _mm512_set1_ps((float)j)
+            );
+
+            // __m512 cx_vec = _mm512_sub_ps(_mm512_mul_ps(j_vec, const_vec_mul), const_vec_sub);
+
+            //float cy = (float(i) / float(img_size)) * 2.5f - 1.25f;
+
+            // Innermost loop: start the recursion from z = 0.
+            // float x2 = 0.0f;
+            // float y2 = 0.0f;
+            // float w = 0.0f;
+            // uint32_t iters = 0;
+            // while (x2 + y2 <= 4.0f && iters < max_iters) {
+            //     float x = x2 - y2 + cx;
+            //     float y = w - x2 - y2 + cy;
+            //     x2 = x * x;
+            //     y2 = y * y;
+            //     float z = x + y;
+            //     w = z * z;
+            //     ++iters;
+            // }
+
+            // Write result.
+            uint32_t* address = &out[i * img_size + j];
+            _mm512_storeu_si512(address, _mm512_cvtps_epu32(j_vec));
+        }
+    }
 }
 
 /// <--- /your code here --->
