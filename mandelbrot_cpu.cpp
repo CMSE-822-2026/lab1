@@ -42,10 +42,11 @@ void mandelbrot_cpu_scalar(uint32_t img_size, uint32_t max_iters, uint32_t *out)
 
 void mandelbrot_cpu_vector(uint32_t img_size, uint32_t max_iters, uint32_t *out) {
         // Generate coordinate offsets
-    __m512 offsets = _mm512_set_ps(15.0f,14.0f,13.0f,12.0f,11.0f,10.0f,9.0f,8.0f,7.0f,6.0f,5.0f,4.0f,3.0f,2.0f,1.0f,0.0f);
+    __m512i offsets = _mm512_set_epi32(15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0);
 
     // Other vectors that are commonly used
-    __m512 const_vec_mul    = _mm512_set1_ps(2.5f / (float)img_size);
+    __m512 size_const       = _mm512_set1_ps((float)img_size);
+    __m512 const_vec_mul    = _mm512_set1_ps(2.5f);
     __m512 const_vec_sub1   = _mm512_set1_ps(2.0f);
     __m512 const_vec_sub2   = _mm512_set1_ps(1.25f);
     __m512 four_vec         = _mm512_set1_ps(4.0f);
@@ -55,11 +56,16 @@ void mandelbrot_cpu_vector(uint32_t img_size, uint32_t max_iters, uint32_t *out)
         __m512 i_vec = _mm512_set1_ps((float)i);
 
         for (uint64_t j = 0; j < img_size; j+=16) {
-            __m512 j_vec = _mm512_add_ps(offsets, _mm512_set1_ps((float)j));
+            __m512i j_vec = _mm512_add_epi32(offsets, _mm512_set1_epi32((int)j));
 
             // Coordinate system on the imaginary plane
-            __m512 cx_vec = _mm512_sub_ps(_mm512_mul_ps(j_vec, const_vec_mul), const_vec_sub1);
-            __m512 cy_vec = _mm512_sub_ps(_mm512_mul_ps(i_vec, const_vec_mul), const_vec_sub2);
+            __m512 cx_vec   = _mm512_div_ps(_mm512_cvtepi32_ps(j_vec), size_const);
+            cx_vec          = _mm512_mul_ps(cx_vec, const_vec_mul);
+            cx_vec          = _mm512_sub_ps(cx_vec, const_vec_sub1);
+
+            __m512 cy_vec   = _mm512_div_ps(i_vec, size_const);
+            cy_vec          = _mm512_mul_ps(cy_vec, const_vec_mul);
+            cy_vec          = _mm512_sub_ps(cy_vec, const_vec_sub2);
 
             // Innermost loop: start the recursion from z = 0.
             __m512 x2_vec = _mm512_set1_ps(0.0f);
@@ -70,30 +76,40 @@ void mandelbrot_cpu_vector(uint32_t img_size, uint32_t max_iters, uint32_t *out)
             __mmask16 active_mask = 0xFFFF;
 
             uint32_t current_iter = 0;
-            while (active_mask != 0 && current_iter < max_iters) {
-                // Real part
-                __m512 x_vec = _mm512_add_ps(_mm512_sub_ps(x2_vec, y2_vec), cx_vec);
-                
-                // Imaginary part
-                __m512 x2_plus_y2 = _mm512_add_ps(x2_vec, y2_vec);
-                __m512 temp1      = _mm512_sub_ps(w_vec, x2_plus_y2);
-                __m512 y_vec      = _mm512_add_ps(temp1, cy_vec);
-
-                x2_vec = _mm512_mul_ps(x_vec, x_vec);
-                y2_vec = _mm512_mul_ps(y_vec, y_vec);
-
-                __m512 x_plus_y = _mm512_add_ps(x_vec, y_vec);
-                w_vec           = _mm512_mul_ps(x_plus_y, x_plus_y);
-
+            bool bounded = true; 
+            while (bounded && current_iter < max_iters) {
                 // Check Mask
-                __mmask16 update = _mm512_cmp_ps_mask(x2_plus_y2, four_vec, _CMP_LE_OQ);
+                __m512 x2_plus_y2   = _mm512_add_ps(x2_vec, y2_vec);
+                __mmask16 update    = _mm512_cmp_ps_mask(x2_plus_y2, four_vec, _CMP_LE_OQ);
 
                 // Logical AND over the previous and new mask
                 active_mask &= update;
 
-                // Update iterations
-                iters = _mm512_mask_add_epi32(iters, active_mask, iters, one_vec);
-                current_iter++;
+                if (active_mask != 0){
+                    // Real part
+                    __m512 x_vec        = _mm512_sub_ps(x2_vec, y2_vec);
+                    x_vec               = _mm512_add_ps(x_vec, cx_vec);
+                    
+                    // Imaginary part
+                    __m512 y_vec        = _mm512_sub_ps(w_vec, x2_vec);
+                    y_vec               = _mm512_sub_ps(y_vec, y2_vec);
+                    y_vec               = _mm512_add_ps(y_vec, cy_vec);
+
+                    // Update squares
+                    x2_vec              = _mm512_mul_ps(x_vec, x_vec);
+                    y2_vec              = _mm512_mul_ps(y_vec, y_vec);
+
+                    // Update w
+                    __m512 z_vec        = _mm512_add_ps(x_vec, y_vec);
+                    w_vec               = _mm512_mul_ps(z_vec, z_vec);
+
+                    // Update iterations
+                    iters = _mm512_mask_add_epi32(iters, active_mask, iters, one_vec);
+                    current_iter++;
+
+                }else{
+                    bounded = false;
+                }
             }
 
             // Write result
